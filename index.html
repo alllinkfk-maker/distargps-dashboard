@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS PM Dashboard | ระบบสรุปงาน PM & แจ้งซ่อม</title>
+    <meta name="description" content="ระบบวิเคราะห์สรุปข้อมูลสถานะงาน PM, แจ้งซ่อม และความเชื่อมต่อของรถยนต์ สำหรับทีมบำรุงรักษา DistarGPS">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- SheetJS (XLSX parsing) & Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Main Style -->
+    <link rel="stylesheet" href="./index.css">
+</head>
+<body>
+    <div class="app-container">
+        
+        <!-- Header Section -->
+        <header class="app-header">
+            <div class="logo-area">
+                <div class="logo-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <div class="logo-text">
+                    <h1>DistarGPS PM Dashboard</h1>
+                    <p>ระบบแดชบอร์ดสรุปงาน PM และรายการแจ้งซ่อมบำรุง</p>
+                </div>
+            </div>
+            
+            <div class="header-actions">
+                <div class="status-badge" id="data-status-badge">
+                    <span class="indicator pulse-green"></span>
+                    <span class="status-text">ใช้ข้อมูลเริ่มต้น (All PM DistarGPS.xlsx)</span>
+                </div>
+                
+                <label for="excel-upload" class="btn btn-primary upload-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span>อัปโหลด Excel ใหม่</span>
+                    <input type="file" id="excel-upload" accept=".xlsx, .xls" style="display: none;">
+                </label>
+            </div>
+        </header>
+
+        <!-- Dropzone Area -->
+        <div id="drop-zone" class="drop-zone">
+            <div class="drop-zone-content">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
+                <h3>ลากและวางไฟล์ Excel หรือคลิกเพื่ออัปโหลด</h3>
+                <p>รองรับไฟล์ .xlsx และ .xls (แนะนำไฟล์ All PM DistarGPS.xlsx)</p>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Content -->
+        <main class="dashboard-content">
+            
+            <!-- KPI Summary Cards -->
+            <section class="kpi-grid">
+                <div class="kpi-card" id="card-total-vehicles">
+                    <div class="kpi-header">
+                        <span class="kpi-title">จำนวนรถทั้งหมด</span>
+                        <div class="kpi-icon icon-blue">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" rx="2" ry="2"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                        </div>
+                    </div>
+                    <div class="kpi-value" id="kpi-total">0</div>
+                    <div class="kpi-footer">คัน ในฐานข้อมูลหลัก</div>
+                </div>
+
+                <div class="kpi-card" id="card-pm-opened">
+                    <div class="kpi-header">
+                        <span class="kpi-title">เปิดงาน PM แล้ว</span>
+                        <div class="kpi-icon icon-indigo">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                        </div>
+                    </div>
+                    <div class="kpi-value" id="kpi-pm-opened">0</div>
+                    <div class="kpi-footer">
+                        <span class="percentage" id="pm-opened-percent">0%</span> จากทั้งหมด
+                    </div>
+                </div>
+
+                <div class="kpi-card" id="card-repairing">
+                    <div class="kpi-header">
+                        <span class="kpi-title">อยู่ระหว่างซ่อม/ตรวจสอบ</span>
+                        <div class="kpi-icon icon-orange">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                        </div>
+                    </div>
+                    <div class="kpi-value" id="kpi-repairing">0</div>
+                    <div class="kpi-footer">
+                        <span class="percentage" id="repairing-percent">0%</span> ของคันที่เปิด PM
+                    </div>
+                </div>
+
+                <div class="kpi-card" id="card-online">
+                    <div class="kpi-header">
+                        <span class="kpi-title">สถานะอุปกรณ์ออนไลน์</span>
+                        <div class="kpi-icon icon-teal">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.58 16.14a7 7 0 0 1 6.84 0"/><circle cx="12" cy="20" r="1"/></svg>
+                        </div>
+                    </div>
+                    <div class="kpi-value" id="kpi-online">0</div>
+                    <div class="kpi-footer">
+                        <span class="percentage" id="online-percent">0%</span> อุปกรณ์ออนไลน์ปกติ
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Visualization Grid -->
+            <section class="charts-grid">
+                <div class="chart-card">
+                    <h3>สถานะ IT Ticket (การเปิดงาน PM)</h3>
+                    <div class="chart-container">
+                        <canvas id="chart-it-ticket"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h3>สถานะการเปิดงาน SV</h3>
+                    <div class="chart-container">
+                        <canvas id="chart-open-sv"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h3>สถานะความเชื่อมต่อของอุปกรณ์</h3>
+                    <div class="chart-container">
+                        <canvas id="chart-device-status"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h3>5 อันดับ บริษัทลูกค้าที่ตรวจ PM สูงสุด</h3>
+                    <div class="chart-container">
+                        <canvas id="chart-top-customers"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Detailed Data Table Section -->
+            <section class="table-section">
+                <div class="table-header">
+                    <h2>รายการรายละเอียดงาน PM รายคัน</h2>
+                    <button class="btn btn-secondary" id="btn-export">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <span>ส่งออก CSV</span>
+                    </button>
+                </div>
+
+                <!-- Filters Control Bar -->
+                <div class="filters-bar">
+                    <div class="search-box">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" id="search-input" placeholder="ค้นหาเลขทะเบียน หรือ ลูกค้า...">
+                    </div>
+
+                    <div class="filter-dropdowns">
+                        <div class="filter-group">
+                            <label for="filter-customer">บริษัทลูกค้า</label>
+                            <select id="filter-customer">
+                                <option value="all">ทั้งหมด</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="filter-model">รุ่นอุปกรณ์</label>
+                            <select id="filter-model">
+                                <option value="all">ทั้งหมด</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="filter-it-ticket">สถานะ IT Ticket</label>
+                            <select id="filter-it-ticket">
+                                <option value="all">ทั้งหมด</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="filter-open-sv">เปิดงาน SV</label>
+                            <select id="filter-open-sv">
+                                <option value="all">ทั้งหมด</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="filter-device">สถานะอุปกรณ์</label>
+                            <select id="filter-device">
+                                <option value="all">ทั้งหมด</option>
+                                <option value="online">ออนไลน์</option>
+                                <option value="offline">ออฟไลน์</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Table Content -->
+                <div class="table-container">
+                    <table id="pm-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="id">ลำดับ <span class="sort-icon">↕</span></th>
+                                <th data-sort="plate">เลขทะเบียน <span class="sort-icon">↕</span></th>
+                                <th data-sort="customer">บริษัทลูกค้า <span class="sort-icon">↕</span></th>
+                                <th data-sort="model">รุ่นอุปกรณ์ <span class="sort-icon">↕</span></th>
+                                <th data-sort="itTicket">สถานะ IT Ticket <span class="sort-icon">↕</span></th>
+                                <th data-sort="openSv">เปิดงาน SV <span class="sort-icon">↕</span></th>
+                                <th data-sort="repairDate">วันที่เเจ้งซ่อม <span class="sort-icon">↕</span></th>
+                                <th data-sort="deviceStatus">สถานะอุปกรณ์ <span class="sort-icon">↕</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body">
+                            <!-- Rows will be injected here by Javascript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination controls -->
+                <div class="pagination-container">
+                    <div class="pagination-info">
+                        แสดงข้อมูล <span id="pagination-start">0</span> ถึง <span id="pagination-end">0</span> จากทั้งหมด <span id="pagination-total">0</span> รายการ
+                    </div>
+                    <div class="pagination-controls">
+                        <button class="btn btn-secondary btn-icon" id="btn-page-prev">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <div class="page-numbers" id="page-numbers-container">
+                            <!-- Page buttons will be injected here -->
+                        </div>
+                        <button class="btn btn-secondary btn-icon" id="btn-page-next">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <footer class="app-footer-bar">
+            <p>&copy; 2026 DistarGPS Maintenance Operations. พัฒนาด้วยเทคโนโลยี HTML5 & Chart.js</p>
+        </footer>
+    </div>
+</body>
+</html>
