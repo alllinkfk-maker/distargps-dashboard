@@ -1,5 +1,5 @@
 /* ==========================================================================
-   JavaScript Logic - GPS PM Dashboard
+   JavaScript Logic - GPS PM Dashboard (Robust Version)
    ========================================================================== */
 
 // Global State
@@ -8,7 +8,7 @@ let filteredData = [];
 let currentSort = { column: 'id', ascending: true };
 let pagination = { currentPage: 1, pageSize: 15 };
 
-// Chart Instances (to destroy and rebuild on data reload)
+// Chart Instances
 let charts = {
     itTicket: null,
     openSv: null,
@@ -129,6 +129,8 @@ function setupEventListeners() {
 
     // CSV Export
     document.getElementById('btn-export').addEventListener('click', exportToCSV);
+    // PDF Print / Save as PDF Link
+    document.getElementById('btn-pdf').addEventListener('click', generatePDFLink);
 }
 
 // Show/Update data status indicator
@@ -185,12 +187,36 @@ function handleExcelFile(file) {
 
 // Map Excel columns dynamically based on Thai headers
 function parseExcelData(rows) {
-    const headerRow = rows[0];
-    
-    // Find column indexes based on header names (case-insensitive & space trimmed)
+    // 1. Scan rows to find the actual header row dynamically (most matches)
+    let headerRowIndex = 0;
+    let maxMatches = 0;
+    const targetHeaders = ['ลำดับ', 'บริษัทลูกค้า', 'รุ่นอุปกรณ์', 'เลขทะเบียน', 'สถานะ IT Ticket', 'เปิดงาน SV', 'สถานะอุปกรณ์'];
+
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+        const row = rows[i];
+        if (!row) continue;
+        let matches = 0;
+        row.forEach(cell => {
+            if (cell !== undefined && cell !== null) {
+                const cleanCell = cell.toString().replace(/\s+/g, '').trim();
+                if (targetHeaders.some(th => cleanCell.includes(th))) {
+                    matches++;
+                }
+            }
+        });
+        if (matches > maxMatches) {
+            maxMatches = matches;
+            headerRowIndex = i;
+        }
+    }
+
+    const headerRow = rows[headerRowIndex];
+    if (!headerRow) return [];
+
+    // Helper to find column index
     const findIndex = (names) => {
         return headerRow.findIndex(h => {
-            if (!h) return false;
+            if (h === undefined || h === null) return false;
             const cleanHeader = h.toString().replace(/\s+/g, '').trim();
             return names.some(name => cleanHeader.includes(name));
         });
@@ -203,36 +229,52 @@ function parseExcelData(rows) {
     const idxItTicket = findIndex(['สถานะITTicket', 'itticket']);
     const idxOpenSv = findIndex(['เปิดงานSV', 'sv']);
     const idxRepairDate = findIndex(['แจ้งซ่อมวันที่', 'เเจ้งซ่อมวันที่', 'วันที่แจ้งซ่อม']);
-    const idxDevice = findIndex(['สถานะอุปกรณ์', 'อุปกรณ์']);
+    let idxDevice = findIndex(['สถานะอุปกรณ์', 'สถานะเครื่อง', 'สถานะgps']);
+    if (idxDevice === -1) {
+        idxDevice = headerRow.findIndex(h => {
+            if (h === undefined || h === null) return false;
+            const cleanHeader = h.toString().replace(/\s+/g, '').trim();
+            return cleanHeader.includes('อุปกรณ์') && !cleanHeader.includes('รุ่น');
+        });
+    }
     const idxDlt = findIndex(['DLTและMasterFile', 'dlt']);
     const idxCard = findIndex(['ค่าบัตรโดยรวม', 'ค่าบัตร']);
     const idxCamera = findIndex(['กล้องRealtime', 'กล้อง']);
     const idxFuel = findIndex(['น้ำมัน', 'fuel']);
 
+    const getCellValue = (row, index) => {
+        if (index === -1 || !row || row[index] === undefined || row[index] === null) {
+            return '';
+        }
+        return row[index].toString().trim();
+    };
+
     const result = [];
     
-    for (let r = 1; r < rows.length; r++) {
+    // Parse from headerRowIndex + 1 to end
+    for (let r = headerRowIndex + 1; r < rows.length; r++) {
         const row = rows[r];
+        if (!row) continue;
         
-        // Skip empty rows or safety checks
-        const plate = idxPlate !== -1 ? (row[idxPlate] || '').toString().trim() : '';
-        const customer = idxCustomer !== -1 ? (row[idxCustomer] || '').toString().trim() : '';
+        const plate = getCellValue(row, idxPlate);
+        const customer = getCellValue(row, idxCustomer);
         
+        // Skip empty rows
         if (!plate && !customer) continue;
         
         result.push({
-            id: idxId !== -1 && row[idxId] !== undefined ? row[idxId].toString().trim() : r.toString(),
+            id: getCellValue(row, idxId) || (r - headerRowIndex).toString(),
             customer: customer || '(ว่าง)',
-            model: idxModel !== -1 && row[idxModel] !== undefined ? row[idxModel].toString().trim() : '',
+            model: getCellValue(row, idxModel),
             plate: plate || '(ไม่มีทะเบียน)',
-            itTicket: idxItTicket !== -1 && row[idxItTicket] !== undefined ? row[idxItTicket].toString().trim() : '',
-            openSv: idxOpenSv !== -1 && row[idxOpenSv] !== undefined ? row[idxOpenSv].toString().trim() : '',
-            repairDate: idxRepairDate !== -1 && row[idxRepairDate] !== undefined ? row[idxRepairDate].toString().trim() : '',
-            deviceStatus: idxDevice !== -1 && row[idxDevice] !== undefined ? row[idxDevice].toString().trim() : '',
-            dltStatus: idxDlt !== -1 && row[idxDlt] !== undefined ? row[idxDlt].toString().trim() : '',
-            cardStatus: idxCard !== -1 && row[idxCard] !== undefined ? row[idxCard].toString().trim() : '',
-            camera: idxCamera !== -1 && row[idxCamera] !== undefined ? row[idxCamera].toString().trim() : '',
-            fuel: idxFuel !== -1 && row[idxFuel] !== undefined ? row[idxFuel].toString().trim() : ''
+            itTicket: getCellValue(row, idxItTicket),
+            openSv: getCellValue(row, idxOpenSv),
+            repairDate: getCellValue(row, idxRepairDate),
+            deviceStatus: getCellValue(row, idxDevice),
+            dltStatus: getCellValue(row, idxDlt),
+            cardStatus: getCellValue(row, idxCard),
+            camera: getCellValue(row, idxCamera),
+            fuel: getCellValue(row, idxFuel)
         });
     }
     
@@ -248,7 +290,7 @@ function loadDataset(data, statusText) {
     
     showBadgeStatus(statusText, 'green');
     
-    // Sort initially by ID (cast numerical string if possible)
+    // Sort initially by ID
     sortData();
     
     // Populate filter options dynamically based on new dataset
@@ -274,10 +316,8 @@ function populateFilters() {
 
     const populateDropdown = (id, values) => {
         const select = document.getElementById(id);
-        // Clear previous options except "All"
         select.innerHTML = '<option value="all">ทั้งหมด</option>';
         
-        // Sort and add new options
         Array.from(values).sort().forEach(val => {
             const opt = document.createElement('option');
             opt.value = val;
@@ -302,12 +342,10 @@ function applyFilters() {
     const filterDevice = document.getElementById('filter-device').value;
 
     filteredData = rawData.filter(item => {
-        // Search text matching plate or customer
         const matchesSearch = !searchVal || 
-            item.plate.toLowerCase().includes(searchVal) || 
-            item.customer.toLowerCase().includes(searchVal);
+            (item.plate && item.plate.toLowerCase().includes(searchVal)) || 
+            (item.customer && item.customer.toLowerCase().includes(searchVal));
 
-        // Dropdown filters matching
         const matchesCustomer = filterCustomer === 'all' || item.customer === filterCustomer;
         const matchesModel = filterModel === 'all' || item.model === filterModel;
         const matchesItTicket = filterItTicket === 'all' || item.itTicket === filterItTicket;
@@ -315,16 +353,16 @@ function applyFilters() {
         
         let matchesDevice = true;
         if (filterDevice === 'online') {
-            matchesDevice = item.deviceStatus.includes('ออนไลน์');
+            matchesDevice = item.deviceStatus && item.deviceStatus.includes('ออนไลน์');
         } else if (filterDevice === 'offline') {
-            matchesDevice = item.deviceStatus.includes('ออฟไลน์');
+            matchesDevice = item.deviceStatus && item.deviceStatus.includes('ออฟไลน์');
         }
 
         return matchesSearch && matchesCustomer && matchesModel && matchesItTicket && matchesOpenSv && matchesDevice;
     });
 
     sortData();
-    updateDashboardVisualsOnly(); // Update KPI cards, Charts, and Table based on filters
+    updateDashboardVisualsOnly();
 }
 
 // Sort data according to currentSort
@@ -335,7 +373,6 @@ function sortData() {
         let valA = a[column] || '';
         let valB = b[column] || '';
         
-        // If sorting by ID/ลำดับ, convert to numbers for natural sort
         if (column === 'id') {
             const numA = parseInt(valA, 10);
             const numB = parseInt(valB, 10);
@@ -344,7 +381,6 @@ function sortData() {
             }
         }
         
-        // String comparison
         valA = valA.toString().toLowerCase();
         valB = valB.toString().toLowerCase();
         
@@ -372,36 +408,65 @@ function updateDashboardVisualsOnly() {
 function updateKPIs() {
     const total = filteredData.length;
     
-    // PM Opened = status matches "แจ้งซ่อม PM"
-    const pmOpened = filteredData.filter(item => 
-        item.itTicket.replace(/\s+/g, '') === 'แจ้งซ่อมPM' || 
-        item.itTicket.replace(/\s+/g, '') === 'เเจ้งซ่อมPM'
-    ).length;
+    const pmOpened = filteredData.filter(item => {
+        if (!item.itTicket) return false;
+        const t = item.itTicket.replace(/\s+/g, '');
+        return t === 'แจ้งซ่อมPM' || t === 'เเจ้งซ่อมPM';
+    }).length;
     
-    // Repairing / Checking = SV status is "อยู่ระหว่างตรวจสอบ"
     const repairing = filteredData.filter(item => 
-        item.openSv.includes('ตรวจสอบ')
+        item.openSv && item.openSv.includes('ตรวจสอบ')
     ).length;
 
-    // Device Online = status contains "ออนไลน์"
     const online = filteredData.filter(item => 
-        item.deviceStatus.includes('ออนไลน์')
+        item.deviceStatus && item.deviceStatus.includes('ออนไลน์')
     ).length;
 
-    // Inject into UI
     document.getElementById('kpi-total').textContent = total.toLocaleString();
     document.getElementById('kpi-pm-opened').textContent = pmOpened.toLocaleString();
     document.getElementById('kpi-repairing').textContent = repairing.toLocaleString();
     document.getElementById('kpi-online').textContent = online.toLocaleString();
 
-    // Percentages
     const pmOpenedPercent = total > 0 ? ((pmOpened / total) * 100).toFixed(1) : 0;
-    const repairingPercent = pmOpened > 0 ? ((repairing / pmOpened) * 100).toFixed(1) : 0; // relative to PM opened
+    const repairingPercent = pmOpened > 0 ? ((repairing / pmOpened) * 100).toFixed(1) : 0;
     const onlinePercent = total > 0 ? ((online / total) * 100).toFixed(1) : 0;
 
     document.getElementById('pm-opened-percent').textContent = `${pmOpenedPercent}%`;
     document.getElementById('repairing-percent').textContent = `${repairingPercent}%`;
     document.getElementById('online-percent').textContent = `${onlinePercent}%`;
+}
+
+// Helper to parse dates and return formatted month key and label
+function getMonthYear(dateStr) {
+    if (!dateStr || dateStr.trim() === '' || dateStr === '-') return null;
+    
+    let month = null;
+    let year = null;
+    
+    const partsSlash = dateStr.split('/');
+    if (partsSlash.length === 3) {
+        month = parseInt(partsSlash[1], 10);
+        year = parseInt(partsSlash[2], 10);
+    } else {
+        const partsDash = dateStr.split('-');
+        if (partsDash.length === 3) {
+            year = parseInt(partsDash[0], 10);
+            month = parseInt(partsDash[1], 10);
+        }
+    }
+    
+    if (month && year && !isNaN(month) && !isNaN(year)) {
+        if (year < 100) {
+            year += 2000;
+        }
+        return {
+            key: year * 100 + month,
+            month: month,
+            year: year
+        };
+    }
+    
+    return null;
 }
 
 // Build counts maps for charts
@@ -410,44 +475,63 @@ function getChartStats() {
     const openSvCounts = {};
     const deviceCounts = { 'ออนไลน์': 0, 'ออฟไลน์': 0, 'ไม่พบสถานะ/ว่าง': 0 };
     const customerCounts = {};
+    const monthlyCounts = {};
 
     filteredData.forEach(item => {
-        // IT Ticket Status
         const tStatus = item.itTicket || '(ว่าง)';
         itTicketCounts[tStatus] = (itTicketCounts[tStatus] || 0) + 1;
 
-        // Open SV Status
         const sStatus = item.openSv || '(ว่าง)';
         openSvCounts[sStatus] = (openSvCounts[sStatus] || 0) + 1;
 
-        // Device Connection Summary
-        if (item.deviceStatus.includes('ออนไลน์')) {
+        if (item.deviceStatus && item.deviceStatus.includes('ออนไลน์')) {
             deviceCounts['ออนไลน์']++;
-        } else if (item.deviceStatus.includes('ออฟไลน์')) {
+        } else if (item.deviceStatus && item.deviceStatus.includes('ออฟไลน์')) {
             deviceCounts['ออฟไลน์']++;
         } else {
             deviceCounts['ไม่พบสถานะ/ว่าง']++;
         }
 
-        // Customer (only count those with actual customer names)
         if (item.customer && item.customer !== '(ว่าง)') {
             customerCounts[item.customer] = (customerCounts[item.customer] || 0) + 1;
         }
+
+        const my = getMonthYear(item.repairDate);
+        if (my) {
+            monthlyCounts[my.key] = (monthlyCounts[my.key] || 0) + 1;
+        }
     });
 
-    // Format Top 5 Customers
     const topCustomers = Object.entries(customerCounts)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5);
 
-    return { itTicketCounts, openSvCounts, deviceCounts, topCustomers };
+    const THAI_MONTHS_SHORT = [
+        'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+        'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+    ];
+
+    const sortedMonthKeys = Object.keys(monthlyCounts).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    
+    const monthlyLabels = [];
+    const monthlyValues = [];
+    
+    sortedMonthKeys.forEach(key => {
+        const year = Math.floor(key / 100);
+        const monthIdx = (key % 100) - 1;
+        const monthName = THAI_MONTHS_SHORT[monthIdx] || '';
+        const label = `${monthName} ${year}`;
+        monthlyLabels.push(label);
+        monthlyValues.push(monthlyCounts[key]);
+    });
+
+    return { itTicketCounts, openSvCounts, deviceCounts, topCustomers, monthlyLabels, monthlyValues };
 }
 
 // Render Charts using Chart.js
 function renderCharts() {
     const stats = getChartStats();
 
-    // Destroy existing chart instances first
     Object.keys(charts).forEach(key => {
         if (charts[key]) charts[key].destroy();
     });
@@ -458,69 +542,66 @@ function renderCharts() {
         plugins: {
             legend: {
                 position: 'bottom',
-                labels: { color: '#e5e7eb', font: { family: 'Sarabun', size: 11 } }
+                labels: { color: '#94a3b8', font: { family: 'Sarabun', size: 11 } }
             }
         }
     };
 
-    // 1. IT Ticket Chart
-    const itLabels = Object.keys(stats.itTicketCounts);
-    const itData = Object.values(stats.itTicketCounts);
     const ctxIt = document.getElementById('chart-it-ticket').getContext('2d');
     charts.itTicket = new Chart(ctxIt, {
         type: 'pie',
         data: {
-            labels: itLabels,
+            labels: Object.keys(stats.itTicketCounts),
             datasets: [{
-                data: itData,
-                backgroundColor: ['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6b7280', '#ec4899', '#8b5cf6'],
-                borderWidth: 1,
-                borderColor: '#1f2937'
-            }]
-        },
-        options: commonOptions
-    });
-
-    // 2. Open SV Chart
-    const svLabels = Object.keys(stats.openSvCounts);
-    const svData = Object.values(stats.openSvCounts);
-    const ctxSv = document.getElementById('chart-open-sv').getContext('2d');
-    charts.openSv = new Chart(ctxSv, {
-        type: 'pie',
-        data: {
-            labels: svLabels,
-            datasets: [{
-                data: svData,
-                backgroundColor: ['#10b981', '#f59e0b', '#6b7280', '#3b82f6', '#8b5cf6'],
-                borderWidth: 1,
-                borderColor: '#1f2937'
-            }]
-        },
-        options: commonOptions
-    });
-
-    // 3. Device Status Chart
-    const devLabels = Object.keys(stats.deviceCounts);
-    const devData = Object.values(stats.deviceCounts);
-    const ctxDev = document.getElementById('chart-device-status').getContext('2d');
-    charts.deviceStatus = new Chart(ctxDev, {
-        type: 'doughnut',
-        data: {
-            labels: devLabels,
-            datasets: [{
-                data: devData,
-                backgroundColor: ['#10b981', '#ef4444', '#4b5563'],
-                borderWidth: 1,
-                borderColor: '#1f2937'
+                data: Object.values(stats.itTicketCounts),
+                backgroundColor: ['#818cf8', '#60a5fa', '#34d399', '#fbbf24', '#f87171', '#6b7280', '#f472b6', '#a78bfa'],
+                borderWidth: 1.5,
+                borderColor: '#151f32'
             }]
         },
         options: {
             ...commonOptions,
-            cutout: '65%'
+            plugins: { legend: { display: false } }
         }
     });
 
-    // 4. Top Customers Chart
+    const ctxSv = document.getElementById('chart-open-sv').getContext('2d');
+    charts.openSv = new Chart(ctxSv, {
+        type: 'pie',
+        data: {
+            labels: Object.keys(stats.openSvCounts),
+            datasets: [{
+                data: Object.values(stats.openSvCounts),
+                backgroundColor: ['#34d399', '#fbbf24', '#6b7280', '#60a5fa', '#a78bfa'],
+                borderWidth: 1.5,
+                borderColor: '#151f32'
+            }]
+        },
+        options: {
+            ...commonOptions,
+            plugins: { legend: { display: false } }
+        }
+    });
+
+    const ctxDev = document.getElementById('chart-device-status').getContext('2d');
+    charts.deviceStatus = new Chart(ctxDev, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(stats.deviceCounts),
+            datasets: [{
+                data: Object.values(stats.deviceCounts),
+                backgroundColor: ['#34d399', '#f87171', '#64748b'],
+                borderWidth: 1.5,
+                borderColor: '#151f32'
+            }]
+        },
+        options: {
+            ...commonOptions,
+            cutout: '65%',
+            plugins: { legend: { display: false } }
+        }
+    });
+
     const custLabels = stats.topCustomers.map(x => x[0]);
     const custData = stats.topCustomers.map(x => x[1]);
     const ctxCust = document.getElementById('chart-top-customers').getContext('2d');
@@ -531,9 +612,9 @@ function renderCharts() {
             datasets: [{
                 label: 'จำนวนงาน PM (คัน)',
                 data: custData,
-                backgroundColor: 'rgba(59, 130, 246, 0.7)',
-                borderColor: '#3b82f6',
-                borderWidth: 1,
+                backgroundColor: 'rgba(52, 211, 153, 0.75)',
+                borderColor: '#34d399',
+                borderWidth: 1.5,
                 borderRadius: 4
             }]
         },
@@ -545,19 +626,53 @@ function renderCharts() {
             },
             scales: {
                 x: {
-                    grid: { color: 'rgba(255,255,255,0.05)' },
-                    ticks: { color: '#e5e7eb', font: { family: 'Sarabun' } }
+                    grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                    ticks: { color: '#94a3b8', font: { family: 'Sarabun' } }
                 },
                 y: {
                     grid: { display: false },
-                    ticks: { color: '#e5e7eb', font: { family: 'Sarabun' } }
+                    ticks: { color: '#94a3b8', font: { family: 'Sarabun' } }
                 }
             }
         }
     });
+
+    // Populate custom legends initially
+    updateCustomLegend(charts.itTicket, 'legend-it-ticket');
+    updateCustomLegend(charts.openSv, 'legend-open-sv');
+    updateCustomLegend(charts.deviceStatus, 'legend-device-status');
 }
 
-// Update charts dataset dynamically (no flashing rebuild)
+// Update custom HTML legend for circular charts
+function updateCustomLegend(chart, legendId) {
+    const legendContainer = document.getElementById(legendId);
+    if (!legendContainer || !chart) return;
+
+    const data = chart.data;
+    const dataset = data.datasets[0];
+    const total = dataset.data.reduce((a, b) => a + b, 0);
+
+    let html = '';
+    data.labels.forEach((label, index) => {
+        const val = dataset.data[index];
+        const percent = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+        const color = dataset.backgroundColor[index] || '#cbd5e1';
+
+        html += `
+            <div class="chart-legend-item">
+                <div class="chart-legend-color" style="background-color: ${color};"></div>
+                <div class="chart-legend-content">
+                    <div class="chart-legend-text">${label}</div>
+                    <div class="chart-legend-value">${val.toLocaleString()} คัน (${percent}%)</div>
+                </div>
+            </div>
+        `;
+    });
+
+    legendContainer.innerHTML = html;
+}
+
+// Update charts dataset dynamically
 function updateChartsData() {
     const stats = getChartStats();
 
@@ -565,18 +680,21 @@ function updateChartsData() {
         charts.itTicket.data.labels = Object.keys(stats.itTicketCounts);
         charts.itTicket.data.datasets[0].data = Object.values(stats.itTicketCounts);
         charts.itTicket.update();
+        updateCustomLegend(charts.itTicket, 'legend-it-ticket');
     }
 
     if (charts.openSv) {
         charts.openSv.data.labels = Object.keys(stats.openSvCounts);
         charts.openSv.data.datasets[0].data = Object.values(stats.openSvCounts);
         charts.openSv.update();
+        updateCustomLegend(charts.openSv, 'legend-open-sv');
     }
 
     if (charts.deviceStatus) {
         charts.deviceStatus.data.labels = Object.keys(stats.deviceCounts);
         charts.deviceStatus.data.datasets[0].data = Object.values(stats.deviceCounts);
         charts.deviceStatus.update();
+        updateCustomLegend(charts.deviceStatus, 'legend-device-status');
     }
 
     if (charts.topCustomers) {
@@ -602,44 +720,39 @@ function renderTable() {
         return;
     }
 
-    // Pagination calculations
     const startIdx = (pagination.currentPage - 1) * pagination.pageSize;
     const endIdx = Math.min(startIdx + pagination.pageSize, totalRecords);
     
     document.getElementById('pagination-start').textContent = (startIdx + 1).toLocaleString();
     document.getElementById('pagination-end').textContent = endIdx.toLocaleString();
 
-    // Render rows
     const pageItems = filteredData.slice(startIdx, endIdx);
     pageItems.forEach(item => {
         const tr = document.createElement('tr');
         
-        // IT Ticket Status badge formatting
         let itTicketClass = 'badge-secondary';
-        const cleanItTicket = item.itTicket.replace(/\s+/g, '');
+        const cleanItTicket = item.itTicket ? item.itTicket.replace(/\s+/g, '') : '';
         if (cleanItTicket === 'แจ้งซ่อมPM' || cleanItTicket === 'เเจ้งซ่อมPM') {
             itTicketClass = 'badge-indigo';
         } else if (cleanItTicket === 'ไม่แจ้งPM' || cleanItTicket === 'ไม่เเจ้งPM') {
             itTicketClass = 'badge-blue';
-        } else if (item.itTicket.includes('ตรวจสอบ')) {
+        } else if (item.itTicket && item.itTicket.includes('ตรวจสอบ')) {
             itTicketClass = 'badge-orange';
-        } else if (item.itTicket.includes('ยกเลิก')) {
+        } else if (item.itTicket && item.itTicket.includes('ยกเลิก')) {
             itTicketClass = 'badge-red';
         }
 
-        // Open SV status badge formatting
         let openSvClass = 'badge-secondary';
-        if (item.openSv.includes('ตรวจสอบ')) {
+        if (item.openSv && item.openSv.includes('ตรวจสอบ')) {
             openSvClass = 'badge-orange';
-        } else if (item.openSv.includes('ไม่แจ้ง') || item.openSv.includes('ไม่เเจ้ง')) {
+        } else if (item.openSv && (item.openSv.includes('ไม่แจ้ง') || item.openSv.includes('ไม่เเจ้ง'))) {
             openSvClass = 'badge-blue';
         }
 
-        // Device Connection badge formatting
         let deviceClass = 'badge-secondary';
-        if (item.deviceStatus.includes('ออนไลน์')) {
+        if (item.deviceStatus && item.deviceStatus.includes('ออนไลน์')) {
             deviceClass = 'badge-teal';
-        } else if (item.deviceStatus.includes('ออฟไลน์')) {
+        } else if (item.deviceStatus && item.deviceStatus.includes('ออฟไลน์')) {
             deviceClass = 'badge-red';
         }
 
@@ -648,10 +761,10 @@ function renderTable() {
             <td style="font-weight: 600; color: var(--color-blue); font-family: var(--font-heading);">${item.plate}</td>
             <td>${item.customer}</td>
             <td style="font-family: var(--font-heading);">${item.model}</td>
-            <td><span class="badge ${itTicketClass}">${item.itTicket || '-'}</span></td>
-            <td><span class="badge ${openSvClass}">${item.openSv || '-'}</span></td>
+            <td><span class="badge ${itTicketClass}"><span class="badge-dot"></span>${item.itTicket || '-'}</span></td>
+            <td><span class="badge ${openSvClass}"><span class="badge-dot"></span>${item.openSv || '-'}</span></td>
             <td style="font-family: var(--font-heading);">${item.repairDate || '-'}</td>
-            <td><span class="badge ${deviceClass}" title="${item.deviceStatus}">${item.deviceStatus.split('|')[0] || '-'}</span></td>
+            <td><span class="badge ${deviceClass}" title="${item.deviceStatus}"><span class="badge-dot"></span>${item.deviceStatus.split('|')[0] || '-'}</span></td>
         `;
         tbody.appendChild(tr);
     });
@@ -664,7 +777,7 @@ function totalPagesCount() {
     return Math.ceil(filteredData.length / pagination.pageSize);
 }
 
-// Render pagination buttons dynamic sizing
+// Render pagination buttons
 function renderPaginationControls(totalPages) {
     const container = document.getElementById('page-numbers-container');
     container.innerHTML = '';
@@ -672,7 +785,6 @@ function renderPaginationControls(totalPages) {
     const btnPrev = document.getElementById('btn-page-prev');
     const btnNext = document.getElementById('btn-page-next');
 
-    // Toggle disabled state
     btnPrev.disabled = pagination.currentPage === 1;
     btnNext.disabled = pagination.currentPage === totalPages || totalPages === 0;
 
@@ -721,15 +833,13 @@ function exportToCSV() {
         item.fuel
     ]);
 
-    // CSV format generation
-    let csvContent = '\uFEFF'; // Add UTF-8 BOM to prevent Thai garbled characters in Excel
+    let csvContent = '\uFEFF';
     csvContent += headers.map(h => `"${h.replace(/"/g, '""')}"`).join(',') + '\n';
     
     rows.forEach(row => {
         csvContent += row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(',') + '\n';
     });
 
-    // Download trigger
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -741,4 +851,98 @@ function exportToCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
+
+// Listen for print events to swap chart theme colors dynamically
+window.addEventListener('beforeprint', () => {
+    updateChartsTheme(true);
+});
+
+window.addEventListener('afterprint', () => {
+    updateChartsTheme(false);
+});
+
+function updateChartsTheme(isPrint) {
+    const textColor = isPrint ? '#4b5563' : '#94a3b8';
+    const gridColor = isPrint ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.06)';
+    const borderColor = isPrint ? '#ffffff' : '#151f32';
+
+    Object.keys(charts).forEach(key => {
+        const chart = charts[key];
+        if (!chart) return;
+
+        // Update slices borders for pie/doughnut charts
+        if (chart.data.datasets && chart.data.datasets[0]) {
+            chart.data.datasets[0].borderColor = borderColor;
+        }
+
+        // Update legend label colors
+        if (chart.options.plugins && chart.options.plugins.legend) {
+            if (chart.options.plugins.legend.labels) {
+                chart.options.plugins.legend.labels.color = textColor;
+            }
+        }
+
+        // Update scales ticks and grid lines for bar charts
+        if (chart.options.scales) {
+            if (chart.options.scales.x) {
+                if (chart.options.scales.x.ticks) chart.options.scales.x.ticks.color = textColor;
+                if (chart.options.scales.x.grid) chart.options.scales.x.grid.color = gridColor;
+            }
+            if (chart.options.scales.y) {
+                if (chart.options.scales.y.ticks) chart.options.scales.y.ticks.color = textColor;
+                if (chart.options.scales.y.grid) chart.options.scales.y.grid.color = gridColor;
+            }
+        }
+
+        chart.update('none'); // Update instantly without animations
+    });
+}
+
+function generatePDFLink() {
+    const badge = document.getElementById('data-status-badge');
+    const oldStatus = badge.querySelector('.status-text').textContent;
+    const oldClass = badge.querySelector('.indicator').className;
+    
+    showBadgeStatus('กำลังสร้างไฟล์ PDF...', 'orange');
+
+    // Set generation timestamp in Thai format for the footer
+    const formattedTime = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+    document.getElementById('pdf-generation-time').textContent = 'เวลาที่พิมพ์: ' + formattedTime;
+
+    // Add class to body to trigger dark-theme desktop capture styling
+    document.body.classList.add('generating-pdf');
+    updateChartsTheme(true);
+
+    // Wait 500ms for browser layout recalculation and chart resize
+    setTimeout(() => {
+        const element = document.querySelector('.app-container');
+
+        const opt = {
+            margin:       10,
+            filename:     `PM_Dashboard_Report_${new Date().toISOString().slice(0,10)}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true, logging: false, width: 1200, scrollY: 0, backgroundColor: '#0b0f19' },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['css', 'legacy'] }
+        };
+
+        html2pdf().from(element).set(opt).toPdf().output('bloburl').then((pdfBlobUrl) => {
+            document.body.classList.remove('generating-pdf');
+            updateChartsTheme(false);
+            
+            badge.querySelector('.status-text').textContent = oldStatus;
+            badge.querySelector('.indicator').className = oldClass;
+
+            window.open(pdfBlobUrl, '_blank');
+        }).catch(err => {
+            console.error(err);
+            alert('เกิดข้อผิดพลาดในการสร้างไฟล์ PDF: ' + err.message);
+            document.body.classList.remove('generating-pdf');
+            updateChartsTheme(false);
+            
+            badge.querySelector('.status-text').textContent = oldStatus;
+            badge.querySelector('.indicator').className = oldClass;
+        });
+    }, 500);
 }

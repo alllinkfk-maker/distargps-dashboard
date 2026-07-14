@@ -11,14 +11,20 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- SheetJS (XLSX parsing) & Chart.js CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS (XLSX parsing), Chart.js & html2pdf Local Libraries -->
+    <script src="./xlsx.full.min.js"></script>
+    <script src="./chart.js"></script>
+    <script src="./html2pdf.bundle.min.js"></script>
     
     <!-- Main Style -->
     <link rel="stylesheet" href="./index.css">
 </head>
 <body>
+    <!-- Ambient Background Glows -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
     <div class="app-container">
         
         <!-- Header Section -->
@@ -32,6 +38,8 @@
                     <p>ระบบแดชบอร์ดสรุปงาน PM และรายการแจ้งซ่อมบำรุง</p>
                 </div>
             </div>
+            
+            <img id="pdf-logo" src="./Logo.png" alt="DiStar GPS Logo" style="display: none; height: 60px; width: auto;">
             
             <div class="header-actions">
                 <div class="status-badge" id="data-status-badge">
@@ -116,22 +124,31 @@
             <section class="charts-grid">
                 <div class="chart-card">
                     <h3>สถานะ IT Ticket (การเปิดงาน PM)</h3>
-                    <div class="chart-container">
-                        <canvas id="chart-it-ticket"></canvas>
+                    <div class="chart-flex-container">
+                        <div id="legend-it-ticket" class="chart-legend"></div>
+                        <div class="chart-canvas-wrapper">
+                            <canvas id="chart-it-ticket"></canvas>
+                        </div>
                     </div>
                 </div>
 
                 <div class="chart-card">
                     <h3>สถานะการเปิดงาน SV</h3>
-                    <div class="chart-container">
-                        <canvas id="chart-open-sv"></canvas>
+                    <div class="chart-flex-container">
+                        <div id="legend-open-sv" class="chart-legend"></div>
+                        <div class="chart-canvas-wrapper">
+                            <canvas id="chart-open-sv"></canvas>
+                        </div>
                     </div>
                 </div>
 
                 <div class="chart-card">
                     <h3>สถานะความเชื่อมต่อของอุปกรณ์</h3>
-                    <div class="chart-container">
-                        <canvas id="chart-device-status"></canvas>
+                    <div class="chart-flex-container">
+                        <div id="legend-device-status" class="chart-legend"></div>
+                        <div class="chart-canvas-wrapper">
+                            <canvas id="chart-device-status"></canvas>
+                        </div>
                     </div>
                 </div>
 
@@ -147,10 +164,16 @@
             <section class="table-section">
                 <div class="table-header">
                     <h2>รายการรายละเอียดงาน PM รายคัน</h2>
-                    <button class="btn btn-secondary" id="btn-export">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        <span>ส่งออก CSV</span>
-                    </button>
+                    <div class="table-actions" style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" id="btn-export">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            <span>ส่งออก CSV</span>
+                        </button>
+                        <button class="btn btn-primary" id="btn-pdf">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                            <span>พิมพ์ / บันทึก PDF</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Filters Control Bar -->
@@ -239,11 +262,36 @@
                     </div>
                 </div>
             </section>
+            
+            <!-- Fleet Suggestions Box (Visible on screen and PDF) -->
+            <div class="summary-suggestions-box">
+                <h4>สรุปและข้อเสนอแนะภาพรวมงาน PM</h4>
+                <ul>
+                    <li><strong>ภาพรวมการเปิดงาน PM:</strong> แนะนำให้เร่งตรวจสอบรถที่เปิดแจ้งซ่อม PM เพื่อดำเนินการบำรุงรักษาเชิงป้องกันอย่างรวดเร็ว</li>
+                    <li><strong>การติดตามสถานะงาน (SV):</strong> ติดตามตรวจสอบอุปกรณ์ที่อยู่ระหว่างการซ่อมแซมอย่างใกล้ชิดเพื่อปล่อยรถเข้าสู่ฟลีทตามกำหนด</li>
+                    <li><strong>สถานะความเชื่อมต่อ:</strong> ตรวจเช็ครถที่มีสถานะเชื่อมต่อขาดหาย (ออฟไลน์) เพื่อตรวจสอบว่าเกิดจากเสาสัญญาณหรือไฟเลี้ยงหลัก</li>
+                    <li><strong>ความปลอดภัยและมาตรการ:</strong> รักษาประวัติการบำรุงรักษาของรถทุกคันเพื่อความยืดหยุ่นในการเคลมประกันอุปกรณ์</li>
+                </ul>
+            </div>
+            
+            <!-- Corporate Thank-you Note (Visible on screen and PDF) -->
+            <div class="thank-you-note">
+                <p class="disclaimer">* หวังเป็นอย่างยิ่งว่าข้อมูลรายงานฉบับนี้จะเป็นประโยชน์ต่อการดำเนินงานและการดูแลรักษารถของท่านให้มีประสิทธิภาพยิ่งขึ้น</p>
+                <p class="thanks-title">ยินดีให้บริการและขอขอบคุณที่ไว้วางใจ</p>
+                <p class="line-contact">ทีมงาน Fleet Management Solutions Line Official: @distarsupport</p>
+            </div>
         </main>
+        
+        <div class="pdf-footer-note">
+            <span>Distar GPS Fleet Management System — รายงานสรุปภาพรวมงานแจ้งซ่อมบำรุง (PM)</span>
+            <span id="pdf-generation-time">เวลาที่พิมพ์: -</span>
+        </div>
         
         <footer class="app-footer-bar">
             <p>&copy; 2026 DistarGPS Maintenance Operations. พัฒนาด้วยเทคโนโลยี HTML5 & Chart.js</p>
         </footer>
     </div>
+    <!-- Load App Logic -->
+    <script src="./index.js"></script>
 </body>
 </html>

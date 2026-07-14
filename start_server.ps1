@@ -59,7 +59,6 @@ while ($listener.IsListening) {
             $response.OutputStream.Write($errContent, 0, $errContent.Length)
         }
     } catch {
-        # Catch individual request handling errors to prevent the server from crashing
         Write-Warning "Error handling request: $_"
     } finally {
         if ($response) {
